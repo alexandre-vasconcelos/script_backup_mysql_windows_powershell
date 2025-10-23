@@ -1,30 +1,33 @@
-#put lots of sensitive data here and specify some directories
-$mysqlUser = ""
-$mysqlPassword = ""
+$mysqlUser = "root"
+$mysqlPassword = "123456"
 $mysqlDir = "C:\Program Files\MySQL\MySQL Server 5.5\bin"
 $tempDir = "C:\backup-sql"
-$zipFileName = "C:\MySQLDump_/backup-sql-$(get-date -f yyyy-MM-dd-hh-mm).zip"
+$zipFileName = "C:\MySQLDump_\backup-sql-$(get-date -f yyyy-MM-dd-hh-mm).zip"
 
+# Ensure temp directory exists
+if (!(Test-Path $tempDir)) {
+    New-Item -ItemType Directory -Path $tempDir | Out-Null
+}
 
-#fetch list of dbs and dump each db
 function dumpAllDatabases($user, $pass) {
-	$databaseList = mysql -u"$user" -p"$pass" -e "SHOW DATABASES"
+    $databaseList = & "$mysqlDir\mysql.exe" -u"$user" -p"$pass" -e "SHOW DATABASES;" | Select-String -NotMatch "Database"
 
-	foreach ($db in $databaseList) {
-    	mysqldump -u"$user" -p"$pass" --databases $db > "$tempDir\$db.sql"
-	}
+    foreach ($db in $databaseList) {
+        $dbName = $db.ToString().Trim()
+        if ($dbName -notin @("information_schema", "performance_schema", "mysql", "sys")) {
+            Write-Host "Dumping database: $dbName"
+            & "$mysqlDir\mysqldump.exe" -u"$user" -p"$pass" --single-transaction --skip-lock-tables --databases $dbName > "$tempDir\$dbName.sql"
+        }
+    }
 }
 
-#zip the folder containing the databases
 function zipDatabaseDumps($source, $destination) {
-    If(Test-path $destination) {Remove-item $destination}
-    Add-Type -assembly "system.io.compression.filesystem"
-    [io.compression.zipfile]::CreateFromDirectory($Source, $destination) 
+    if (Test-Path $destination) { Remove-Item $destination }
+    Add-Type -Assembly "System.IO.Compression.FileSystem"
+    [IO.Compression.ZipFile]::CreateFromDirectory($source, $destination)
 }
 
-
-#so we've done all the magic, let's run it!!
-mkdir $tempDir
 dumpAllDatabases $mysqlUser $mysqlPassword
-zipDatabaseDumps  $tempDir $zipFileName
+zipDatabaseDumps $tempDir $zipFileName
 
+Write-Host "✅ Backup complete: $zipFileName"
